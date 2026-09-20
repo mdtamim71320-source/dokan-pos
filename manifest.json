@@ -1,6 +1,6 @@
 {
- "name": "মুদি দোকান POS",
- "short_name": "মুদি দোকান",
+ "name": "আমার দোকান",
+ "short_name": "আমার দোকান",
  "start_url": "./",
  "scope": "./",
  "display": "standalone",

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="bn"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>মুদি দোকান POS</title><link rel="manifest" href="manifest.json"><meta name="theme-color" content="#0b7a3e"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes">
+<html lang="bn"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>আমার দোকান</title><link rel="manifest" href="manifest.json"><meta name="theme-color" content="#0b7a3e"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f3f5f7;--c:#fff;--t:#111;--m:#555;--p:#0b7a3e;--pt:#fff;--r:#c62828;--b:#c5ccd3}
@@ -34,6 +34,7 @@ K='mudir_dokan_v1',uid=()=>Date.now().toString(36)+Math.random().toString(36).sl
 R2=n=>Math.round(n*1000)/1000,A=h=>$('#app').innerHTML=h;
 let D={shop:'আমার দোকান',products:[],customers:[],sales:[],ledger:[],lastBackup:0};
 try{Object.assign(D,JSON.parse(localStorage.getItem(K)||'{}'))}catch(e){}
+D.products.forEach(p=>{if(p.qty<0)p.qty=0});
 try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
 function save(){try{localStorage.setItem(K,JSON.stringify(D))}catch(e){toast('সেভ হচ্ছে না! এখনই ব্যাকআপ নিন')}}
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',2600)}
@@ -42,29 +43,33 @@ function closeModal(){$('#modal').innerHTML=''}
 function ask(m,fn){modal(`<p>${E(m)}</p><div class="row"><button class="btn o" onclick="closeModal()">না</button><button class="btn r" id="yes">হ্যাঁ</button></div>`);$('#yes').onclick=()=>{closeModal();fn()}}
 const T=[['pos','🛒','বিক্রি'],['stock','📦','স্টক'],['baki','📒','বাকি খাতা'],['dash','📊','রিপোর্ট'],['bk','💾','ব্যাকআপ']];
 let tab='pos',cart=[],cust='',disc='',paid='',sq='',range='today',d1='',d2='';
-function go(t){tab=t;$('#nav').innerHTML=T.map(x=>`<button class="${x[0]==t?'on':''}" onclick="go('${x[0]}')"><span>${x[1]}</span>${x[2]}</button>`).join('');$('#hd').textContent='🏪 '+D.shop;({pos:rPos,stock:rStock,baki:rBaki,dash:rDash,bk:rBk})[t]()}
+let tabHist=[];function go(t,bk){if(!bk&&t!==tab)tabHist.push(tab);tab=t;$('#nav').innerHTML=T.map(x=>`<button class="${x[0]==t?'on':''}" onclick="go('${x[0]}')"><span>${x[1]}</span>${x[2]}</button>`).join('');$('#hd').textContent='🏪 '+D.shop;({pos:rPos,stock:rStock,baki:rBaki,dash:rDash,bk:rBk})[t]()}
 
 /* ---------- Barcode camera ---------- */
 let qr;
 const LIBS=['https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js','https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js'];
 function lib(){return window.Html5Qrcode?Promise.resolve():LIBS.reduce((p,u)=>p.catch(()=>new Promise((ok,no)=>{const s=document.createElement('script');s.src=u;s.onload=()=>window.Html5Qrcode?ok():no();s.onerror=no;document.head.appendChild(s)})),Promise.reject())}
+let multi=false,lastC='',lastT=0;
+function beep(){try{const a=new(window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator();o.connect(a.destination);o.frequency.value=880;o.start();setTimeout(()=>{o.stop();a.close()},120)}catch(e){}try{navigator.vibrate&&navigator.vibrate(60)}catch(e){}}
+function onMulti(c){const n=Date.now();if(c==lastC&&n-lastT<2000){lastT=n;return}lastC=c;lastT=n;const p=D.products.find(x=>x.barcode==c),s=$('#cs');if(!p){if(s)s.textContent='❌ পণ্য নেই: '+c;return}addCart(p.id);beep();if(s)s.innerHTML='✅ '+E(p.name)+'<br>কার্টে '+N(cart.reduce((a,x)=>a+x.qty,0))+' টি · ৳'+N(tot().t)}
+function scanMulti(){lastC='';if(camBlocked())return scan(addCode);multi=true;scan(addCode)}
 function camBlocked(){try{const p=document.permissionsPolicy||document.featurePolicy;return !!(p&&p.allowsFeature&&!p.allowsFeature('camera'))}catch(e){return false}}
 function scan(cb){if(camBlocked())return photoUI(cb);lib().then(()=>scan2(cb),()=>scanNative(cb))}
 let ns;
 function scanNative(cb){if(!('BarcodeDetector' in window)||!navigator.mediaDevices)return toast('এই ব্রাউজারে ক্যামেরা স্ক্যান চলছে না — Chrome-এ খুলুন, অথবা বারকোড টাইপ করুন / স্ক্যানার গান ব্যবহার করুন');
-$('#cam').innerHTML='<div class="ov" style="z-index:12"><div class="box"><h3>বারকোড স্ক্যান</h3><video id="nv" playsinline muted style="width:100%;border-radius:10px"></video><p class="red" id="qe"></p><button class="btn w" onclick="stopNative()">বন্ধ করুন</button></div></div>';
+$('#cam').innerHTML='<div class="ov" style="z-index:12"><div class="box"><h3>বারকোড স্ক্যান</h3><video id="nv" playsinline muted style="width:100%;border-radius:10px"></video><p class="mut" id="cs" style="font-size:16px"></p><p class="red" id="qe"></p><button class="btn w" onclick="stopNative()">'+(multi?'✅ শেষ করুন':'বন্ধ করুন')+'</button></div></div>';
 const det=new BarcodeDetector();
-navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:'environment'}}}).then(s=>{ns={s,cb};const v=$('#nv');v.srcObject=s;v.play();ns.t=setInterval(()=>det.detect(v).then(r=>{if(r.length&&ns){const c=r[0].rawValue,f=ns.cb;stopNative(()=>f(c))}}).catch(()=>{}),300)}).catch(()=>photoUI(cb))}
-function stopNative(f){if(ns){clearInterval(ns.t);ns.s.getTracks().forEach(t=>t.stop());ns=null}$('#cam').innerHTML='';f&&f()}
+navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:'environment'}}}).then(s=>{ns={s,cb};const v=$('#nv');v.srcObject=s;v.play();ns.t=setInterval(()=>det.detect(v).then(r=>{if(r.length&&ns){const c=r[0].rawValue,f=ns.cb;if(multi)onMulti(c);else stopNative(()=>f(c))}}).catch(()=>{}),300)}).catch(()=>photoUI(cb))}
+function stopNative(f){multi=false;if(ns){clearInterval(ns.t);ns.s.getTracks().forEach(t=>t.stop());ns=null}$('#cam').innerHTML='';f&&f()}
 function scan2(cb){
-$('#cam').innerHTML='<div class="ov" style="z-index:12"><div class="box"><h3>বারকোড স্ক্যান</h3><div id="qr"></div><p class="red" id="qe"></p><button class="btn w" onclick="stopScan()">বন্ধ করুন</button></div></div>';
-qr=new Html5Qrcode('qr');qr.start({facingMode:{exact:'environment'}},{fps:10,qrbox:{width:250,height:150}},t=>{if(qr)stopScan(()=>cb(t))},()=>{}).catch(()=>photoUI(cb))}
-function photoUI(cb){qr=null;const cam=$('#cam');cam.innerHTML='<div id="pq" style="display:none"></div>';const i=document.createElement('input');i.type='file';i.accept='image/*';i.setAttribute('capture','environment');i.style.display='none';cam.appendChild(i);
+$('#cam').innerHTML='<div class="ov" style="z-index:12"><div class="box"><h3>বারকোড স্ক্যান</h3><div id="qr"></div><p class="mut" id="cs" style="font-size:16px"></p><p class="red" id="qe"></p><button class="btn w" onclick="stopScan()">'+(multi?'✅ শেষ করুন':'বন্ধ করুন')+'</button></div></div>';
+qr=new Html5Qrcode('qr');qr.start({facingMode:{exact:'environment'}},{fps:10,qrbox:{width:250,height:150}},t=>{if(!qr)return;if(multi)onMulti(t);else stopScan(()=>cb(t))},()=>{}).catch(()=>photoUI(cb))}
+function photoUI(cb){multi=false;qr=null;const cam=$('#cam');cam.innerHTML='<div id="pq" style="display:none"></div>';const i=document.createElement('input');i.type='file';i.accept='image/*';i.setAttribute('capture','environment');i.style.display='none';cam.appendChild(i);
 i.onchange=async()=>{const f=i.files[0];if(!f)return cam.innerHTML='';try{let c;if('BarcodeDetector' in window){const r=await new BarcodeDetector().detect(await createImageBitmap(f));c=r[0]&&r[0].rawValue}if(!c){await lib();c=await new Html5Qrcode('pq').scanFile(f,false)}if(!c)throw 0;cam.innerHTML='';cb(c)}catch(x){cam.innerHTML='';toast('বারকোড পড়া যায়নি — কাছ থেকে, স্পষ্ট করে আবার 📷 চাপুন')}};i.click()}
-function stopScan(cb){const q=qr;qr=null;const d=()=>{$('#cam').innerHTML='';cb&&cb()};q?q.stop().catch(()=>{}).then(()=>{try{q.clear()}catch(e){}d()}):d()}
+function stopScan(cb){multi=false;const q=qr;qr=null;const d=()=>{$('#cam').innerHTML='';cb&&cb()};q?q.stop().catch(()=>{}).then(()=>{try{q.clear()}catch(e){}d()}):d()}
 
 /* ---------- POS ---------- */
-function rPos(){A(`<div class="card"><div class="row"><input id="sc" placeholder="বারকোড স্ক্যান / টাইপ" inputmode="numeric" autocomplete="off"><button class="btn f0" onclick="scan(addCode)">📷</button></div>
+function rPos(){A(`<div class="card"><div class="row"><input id="sc" placeholder="বারকোড স্ক্যান / টাইপ" inputmode="numeric" autocomplete="off"><button class="btn f0" onclick="scanMulti()">📷</button></div>
 <input id="sq" placeholder="🔍 পণ্যের নাম খুঁজুন" style="margin-top:8px" autocomplete="off"><div id="dd"></div></div>
 <div class="card" id="cart"></div>
 <div class="card"><div class="row"><input type="number" inputmode="decimal" placeholder="ছাড় (৳)" value="${disc}" oninput="disc=this.value;sum()"><input type="number" inputmode="decimal" placeholder="নগদ প্রাপ্ত (খালি=পুরো)" value="${paid}" oninput="paid=this.value;sum()"></div>
@@ -75,7 +80,7 @@ fillCu();drawCart();
 const sc=$('#sc');sc.onkeydown=e=>{if(e.key=='Enter'){e.preventDefault();addCode(sc.value.trim());sc.value=''}};sc.focus();
 $('#sq').oninput=e=>{const v=e.target.value.trim().toLowerCase();$('#dd').innerHTML=v?'<div class="dd">'+(D.products.filter(p=>p.name.toLowerCase().includes(v)||p.barcode.includes(v)).slice(0,20).map(p=>`<div onclick="addCart('${p.id}');$('#sq').value='';$('#dd').innerHTML=''">${E(p.name)} <span class="mut">৳${N(p.sell)}/${p.unit} · স্টক ${N(p.qty)}</span></div>`).join('')||'<div class="mut">পাওয়া যায়নি</div>')+'</div>':''}}
 function addCode(c){if(!c)return;const p=D.products.find(x=>x.barcode==c);p?addCart(p.id):toast('এই বারকোডের পণ্য নেই')}
-function addCart(id){const p=D.products.find(x=>x.id==id);if(!p)return;let c=cart.find(x=>x.id==id);c?c.qty=R2(c.qty+1):cart.push(c={id,name:p.name,unit:p.unit,price:p.sell,buy:p.buy,qty:1});if(c.qty>p.qty)toast('⚠ স্টক কম: '+N(p.qty)+' '+p.unit);drawCart();const s=$('#sc');s&&s.focus()}
+function addCart(id){const p=D.products.find(x=>x.id==id);if(!p)return;let c=cart.find(x=>x.id==id);c?c.qty=R2(c.qty+1):cart.push(c={id,name:p.name,unit:p.unit,price:p.sell,buy:p.buy,qty:1});if(c.qty>p.qty)toast('⚠ স্টক কম: '+N(p.qty)+' '+p.unit);drawCart();if(!multi){const s=$('#sc');s&&s.focus()}}
 function drawCart(){$('#cart').innerHTML=cart.length?cart.map((c,i)=>`<div style="border-bottom:1px solid var(--b);padding:6px 0"><div class="row sp"><b>${E(c.name)}</b><button class="btn r f0" onclick="cart.splice(${i},1);drawCart()">✕</button></div><div class="row"><input type="number" inputmode="decimal" value="${c.qty}" onchange="cart[${i}].qty=+this.value||0;drawCart()"><span class="f0">${c.unit} ×</span><input type="number" inputmode="decimal" value="${c.price}" onchange="cart[${i}].price=+this.value||0;drawCart()"><b class="f0">৳${N(c.qty*c.price)}</b></div></div>`).join(''):'<p class="mut">কার্ট খালি — বারকোড স্ক্যান করুন বা নাম খুঁজুন</p>';sum()}
 function tot(){const s=cart.reduce((a,c)=>a+c.qty*c.price,0),d=Math.min(+disc||0,s),t=s-d,p=paid===''?t:+paid;return{s,d,t,p,ch:Math.max(0,p-t),du:Math.max(0,t-p)}}
 function sum(){const x=tot();$('#sum').innerHTML=`<div class="row sp"><span>সাব-টোটাল</span><b>৳${N(x.s)}</b></div><div class="row sp"><span>সর্বমোট</span><span class="big">৳${N(x.t)}</span></div><div class="row sp"><span>ফেরত</span><b>৳${N(x.ch)}</b></div><div class="row sp"><span>বাকি</span><b class="${x.du?'red':''}">৳${N(x.du)}</b></div>`}
@@ -83,9 +88,9 @@ function fillCu(){$('#cu').innerHTML='<option value="">কাস্টমার 
 function sell(){const x=tot();if(!cart.length||cart.some(c=>c.qty<=0))return toast('কার্ট ঠিক করুন');
 if(x.du>0&&!cust)return toast('বাকি থাকলে কাস্টমার বেছে নিন');
 const s={id:uid(),no:D.sales.length+1,ts:Date.now(),items:cart.map(c=>({...c})),sub:x.s,disc:x.d,total:x.t,paid:Math.min(x.p,x.t),due:x.du,cid:cust};
-cart.forEach(c=>{const p=D.products.find(y=>y.id==c.id);if(p)p.qty=R2(p.qty-c.qty)});
+const over=[];cart.forEach(c=>{const p=D.products.find(y=>y.id==c.id);if(p){if(c.qty>p.qty)over.push(p.name);p.qty=Math.max(0,R2(p.qty-c.qty))}});
 if(x.du){const u=D.customers.find(y=>y.id==cust);u.due=Math.round((u.due+x.du)*100)/100;D.ledger.push({id:uid(),cid:cust,ts:s.ts,type:'due',amt:x.du,note:'বিল #'+s.no})}
-D.sales.push(s);save();cart=[];disc=paid=cust='';rPos();receipt(s.id)}
+D.sales.push(s);save();if(over.length)setTimeout(()=>toast('⚠ স্টকের চেয়ে বেশি বিক্রি: '+over.join(', ')+' (স্টক ০ করা হলো)'),300);cart=[];disc=paid=cust='';rPos();receipt(s.id)}
 function rcText(s){const cu=D.customers.find(c=>c.id==s.cid),L='--------------------------';return [D.shop,'বিল #'+s.no+'  '+new Date(s.ts).toLocaleString('bn-BD'),L,...s.items.map(i=>`${i.name}\n  ${N(i.qty)} ${i.unit} × ${N(i.price)} = ${N(i.qty*i.price)}`),L,'সাব-টোটাল: '+N(s.sub),'ছাড়: '+N(s.disc),'সর্বমোট: '+N(s.total),'জমা: '+N(s.paid),'বাকি: '+N(s.due),cu?'কাস্টমার: '+cu.name:'','ধন্যবাদ!'].filter(Boolean).join('\n')}
 function receipt(id){const s=D.sales.find(x=>x.id==id);modal(`<div class="rc">${E(rcText(s))}</div><div class="row np" style="margin-top:12px"><button class="btn" onclick="window.print()">🖨 প্রিন্ট</button><button class="btn o" onclick="shareRc('${id}')">📤 শেয়ার</button><button class="btn o" onclick="closeModal()">বন্ধ</button></div>`)}
 function shareRc(id){const t=rcText(D.sales.find(x=>x.id==id));if(navigator.share)navigator.share({text:t}).catch(()=>{});else if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>toast('কপি হয়েছে'),()=>toast('কপি করা যায়নি'))}
@@ -102,7 +107,7 @@ modal(`<h3>${id?'পণ্য এডিট':'নতুন পণ্য'}</h3><la
 <div class="g"><div><label>কেনা দাম</label><input id="fk" type="number" inputmode="decimal" value="${p.buy}"></div><div><label>বিক্রি দাম</label><input id="fs" type="number" inputmode="decimal" value="${p.sell}"></div><div><label>স্টক পরিমাণ</label><input id="fq" type="number" inputmode="decimal" value="${p.qty}"></div></div><label>একক (ট্যাপ করে বেছে নিন)</label><input type="hidden" id="fu" value="${p.unit}"><div id="uu" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${['Kg','Gm','Pcs','Packet','Litre'].map(u=>`<button type="button" class="btn ${u==p.unit?'':'o'}" onclick="pickU('${u}')">${u}</button>`).join('')}</div>
 <div class="row" style="margin-top:12px"><button class="btn o" onclick="closeModal()">বাতিল</button><button class="btn" onclick="saveProd('${id||''}')">সেভ</button></div>${id?`<button class="btn r w" style="margin-top:8px" onclick="ask('পণ্যটি মুছবেন?',()=>{D.products=D.products.filter(x=>x.id!='${id}');save();lst()})">মুছুন</button>`:''}`)}
 function pickU(u){$('#fu').value=u;document.querySelectorAll('#uu button').forEach(b=>b.className='btn'+(b.textContent==u?'':' o'))}
-function saveProd(id){const v=k=>$('#'+k).value.trim(),o={name:v('fn'),barcode:v('fb'),buy:+v('fk')||0,sell:+v('fs')||0,qty:+v('fq')||0,unit:$('#fu').value};
+function saveProd(id){const v=k=>$('#'+k).value.trim(),o={name:v('fn'),barcode:v('fb'),buy:+v('fk')||0,sell:+v('fs')||0,qty:Math.max(0,+v('fq')||0),unit:$('#fu').value};
 if(!o.name||!o.sell)return toast('নাম ও বিক্রি দাম দিন');
 if(o.barcode&&D.products.some(x=>x.barcode==o.barcode&&x.id!=id))return toast('এই বারকোড আগে থেকেই আছে');
 if(id)Object.assign(D.products.find(x=>x.id==id),o);else D.products.push({id:uid(),...o});save();closeModal();lst()}
@@ -135,7 +140,18 @@ function rBk(){A(`<div class="card"><label>দোকানের নাম</labe
 function exp(){const j=JSON.stringify(D,null,1),f='dokan-backup-'+new Date().toISOString().slice(0,10)+'.json',
 fb=()=>{const t=$('#bt');t.style.display='block';t.value=j;t.select();toast('লেখাটি কপি করে নিরাপদ জায়গায় রাখুন')};
 DL?DL.save({filename:f,data:j}).then(()=>{D.lastBackup=Date.now();save();rBk()},e=>{if(e.code!='declined')fb()}):fb()}
-function imp(f){if(!f)return;const r=new FileReader();r.onload=()=>{try{const o=JSON.parse(r.result);if(!Array.isArray(o.products)||!Array.isArray(o.sales))throw 0;ask('বর্তমান ডেটা মুছে ব্যাকআপ থেকে ফেরত আনবেন?',()=>{D=Object.assign({shop:'আমার দোকান',products:[],customers:[],sales:[],ledger:[],lastBackup:0},o);save();go('bk');toast('ইমপোর্ট সম্পন্ন')})}catch(e){toast('ফাইলটি সঠিক ব্যাকআপ নয়')}};r.readAsText(f)}
+function imp(f){if(!f)return;const r=new FileReader();r.onload=()=>{try{const o=JSON.parse(r.result);if(!Array.isArray(o.products)||!Array.isArray(o.sales))throw 0;ask('বর্তমান ডেটা মুছে ব্যাকআপ থেকে ফেরত আনবেন?',()=>{D=Object.assign({shop:'আমার দোকান',products:[],customers:[],sales:[],ledger:[],lastBackup:0},o);D.products.forEach(p=>{if(p.qty<0)p.qty=0});save();go('bk');toast('ইমপোর্ট সম্পন্ন')})}catch(e){toast('ফাইলটি সঠিক ব্যাকআপ নয়')}};r.readAsText(f)}
 try{if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{})}catch(e){}
+(function(){let inF=true;try{inF=window.top!==window}catch(e){}if(inF||!history.pushState)return;
+const push=()=>{try{history.pushState({s:1},'')}catch(e){}};let tm;
+try{history.replaceState({s:0},'');push()}catch(e){return}
+window.addEventListener('popstate',()=>{let h=1;
+if($('#cam').innerHTML){if(qr)stopScan();else if(ns)stopNative();else $('#cam').innerHTML=''}
+else if($('#modal').innerHTML)closeModal();
+else if(tabHist.length)go(tabHist.pop(),1);
+else h=0;
+if(h)return push();
+toast('বেরোতে আবার ব্যাক চাপুন');clearTimeout(tm);tm=setTimeout(()=>{if(history.state&&history.state.s===0)push()},2200)});
+document.addEventListener('pointerdown',()=>{if(history.state&&history.state.s===0)push()},true)})();
 go('pos');
 </script></body></html>
